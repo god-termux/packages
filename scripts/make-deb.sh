@@ -24,7 +24,7 @@ ROOTFS=$(mktemp -d); trap 'rm -rf "$ROOTFS"' EXIT
 install -d "$ROOTFS/usr/bin" "$ROOTFS/usr/share/doc/$PKG" "$ROOTFS/DEBIAN"
 # файлы, установленные `just install` (usr/share/..., ссылки на бинарники); затем сами бинарники
 [ -d "$SRCDIR/root" ] && cp -a "$SRCDIR/root/." "$ROOTFS/"
-for b in "$SRCDIR"/bin/*; do install -m755 "$b" "$ROOTFS/usr/bin/$(basename "$b")"; done
+for b in "$SRCDIR"/bin/*; do [ -e "$b" ] || continue; install -m755 "$b" "$ROOTFS/usr/bin/$(basename "$b")"; done
 
 # зависимости: библиотеки из NEEDED (кроме libc/libm/libgcc_s: их закрывают пакеты-заглушки Termux glibc) + xkb-data и EGL/Wayland на время работы
 DEPS=$({ grep -vE '^(libc6|libgcc-s1|libm6)$' "$SRCDIR/runtime-packages.txt" || true; } | sort -u | tr '\n' ',' | sed 's/,$//')
