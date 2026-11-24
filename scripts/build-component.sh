@@ -59,12 +59,16 @@ aarch64-linux-gnu-readelf -d "$DIST/$BIN" | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p'
 # наивысшая версия символов glibc: должна быть не выше glibc на телефоне (2.44)
 aarch64-linux-gnu-objdump -T "$DIST/$BIN" | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1 > "$DIST/glibc-max.txt" || true
 # пакеты Debian, которые на телефоне нужно поставить через dapt (по NEEDED)
+# (не все NEEDED-библиотеки обязаны быть в базе dpkg: ошибки поиска не должны ронять сборку)
 : > "$DIST/runtime-packages.txt"
 while read -r so; do
   f=$(ls /usr/lib/aarch64-linux-gnu/"$so" /lib/aarch64-linux-gnu/"$so" 2>/dev/null | head -1 || true)
-  [ -n "$f" ] || continue
-  dpkg -S "$f" 2>/dev/null | head -1 | cut -d: -f1 | sed 's/:arm64//'
-done < "$DIST/NEEDED.txt" | sort -u > "$DIST/runtime-packages.txt"
+  if [ -n "$f" ]; then
+    pkg=$(dpkg -S "$f" 2>/dev/null | head -1 | cut -d: -f1 | sed 's/:arm64//' || true)
+    if [ -n "$pkg" ]; then echo "$pkg" >> "$DIST/runtime-packages.txt"; fi
+  fi
+done < "$DIST/NEEDED.txt"
+sort -u -o "$DIST/runtime-packages.txt" "$DIST/runtime-packages.txt"
 echo "== $NAME: $(du -h "$DIST/$BIN" | cut -f1), glibc max $(cat "$DIST/glibc-max.txt")"
 echo "== NEEDED:"; cat "$DIST/NEEDED.txt"
 echo "== пакеты Debian для телефона:"; cat "$DIST/runtime-packages.txt"
