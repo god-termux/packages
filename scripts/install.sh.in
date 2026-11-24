@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Подключает apt-репозиторий god-cosmic к дереву Debian god-termux (dapt). Затем: dapt update && dapt install god-cosmic
+# Подключает apt-репозиторий god-termux к дереву Debian god-termux (dapt). Затем: dapt update && dapt install god-cosmic
 # Выполняется в обычной оболочке Termux, без root. Ничего, кроме своего ключа и файла источников, не меняет.
 set -euo pipefail
 URL=@URL@
@@ -8,15 +8,16 @@ D=${DAPT_ROOT:-$P/debian}
 [ -d "$D/etc/apt/sources.list.d" ] || { echo "Дерево Debian не найдено в $D: выполните 'dapt init'" >&2; exit 1; }
 command -v dapt >/dev/null || { echo "нет команды dapt (нужен god-termux)" >&2; exit 1; }
 
+rm -f "$D/etc/apt/sources.list.d/god-cosmic.sources" "$D/usr/share/keyrings/god-cosmic-archive-keyring.gpg"
 mkdir -p "$D/usr/share/keyrings"
-curl -fsSL "$URL/keyrings/god-cosmic-archive-keyring.gpg" -o "$D/usr/share/keyrings/god-cosmic-archive-keyring.gpg"
-cat > "$D/etc/apt/sources.list.d/god-cosmic.sources" <<EOF2
+curl -fsSL "$URL/keyrings/god-termux-archive-keyring.gpg" -o "$D/usr/share/keyrings/god-termux-archive-keyring.gpg"
+cat > "$D/etc/apt/sources.list.d/god-termux.sources" <<EOF2
 Types: deb
 URIs: $URL/
 Suites: stable
 Components: main
 Architectures: arm64
-Signed-By: $D/usr/share/keyrings/god-cosmic-archive-keyring.gpg
+Signed-By: $D/usr/share/keyrings/god-termux-archive-keyring.gpg
 EOF2
 echo "god-cosmic: репозиторий подключён. Дальше:"
 echo "  dapt update && dapt install god-cosmic"

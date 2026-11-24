@@ -1,4 +1,6 @@
-# god-cosmic
+# god-termux/packages
+
+Персональный apt-репозиторий пакетов для god-termux (Debian arm64, дерево `dapt`). Сейчас в нём `god-cosmic`; новые пакеты добавляются как components/*.env + packaging/*.
 
 Сборки компонентов рабочего стола [COSMIC](https://github.com/pop-os/cosmic-epoch) (Rust, Wayland) под **aarch64 glibc** для телефона с god-termux (форк Termux). Собирается в GitHub Actions, а не на телефоне: сборка `-Zbuild-std` под glibc прямо в Termux не получилась (тысячи ошибок `core`/`Ok` not found).
 
@@ -21,7 +23,7 @@
 Подписанный apt-репозиторий на GitHub Pages для дерева Debian god-termux (`dapt`):
 
 ```sh
-curl -fsSL https://god-termux.github.io/god-cosmic/install.sh | bash   # подключает источник и ключ
+curl -fsSL https://god-termux.github.io/packages/install.sh | bash   # подключает источник и ключ
 dapt update && dapt install god-cosmic
 god-cosmic start                       # откроет окно Wayland и запустит COSMIC
 god-cosmic run КОМАНДА                  # Wayland-программа внутри COSMIC
@@ -29,7 +31,7 @@ god-cosmic status | stop
 ```
 
 Пакет содержит `cosmic-comp` и лаунчер `god-cosmic`; `postinst` кладёт команду в `$PREFIX/bin`. Зависимости (из Debian 13): `libdisplay-info2`, `libgbm1`, `libinput10`, `libpixman-1-0`, `libseat1`, `libudev1`, `libxkbcommon0`, `xkb-data`, `libegl1`, `libgles2`, `libwayland-client0`, `libwayland-server0`.
-Ключ репозитория: `keyrings/god-cosmic-archive-keyring.asc`.
+Ключ репозитория: `keyrings/god-termux-archive-keyring.asc`.
 
 На Android нет DRM/KMS, поэтому `cosmic-comp` работает вложенно (бэкенд `winit`) в Wayland-композитор god-termux; параметры окна (разрешение, частота кадров, режим касаний, клавиатура) задаются в приложении, в «Настройках Wayland».
 

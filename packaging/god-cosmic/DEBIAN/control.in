@@ -6,7 +6,7 @@ Installed-Size: @SIZE@
 Depends: @DEPENDS@
 Section: x11
 Priority: optional
-Homepage: https://github.com/god-termux/god-cosmic
+Homepage: https://github.com/god-termux/packages
 Description: COSMIC compositor for god-termux (nested in the Wayland window)
  cosmic-comp (pop-os/cosmic-comp, commit @COMMIT@) built for aarch64 glibc,
  with the god-cosmic launcher. Android has no DRM/KMS, so the compositor runs

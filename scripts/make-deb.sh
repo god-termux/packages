@@ -38,7 +38,7 @@ Files: usr/bin/cosmic-comp
 Copyright: System76 and the COSMIC contributors
 License: GPL-3.0-only
  Исходный код: $REPO, коммит $SHA.
- Сборка: https://github.com/god-termux/god-cosmic (components/cosmic-comp.env, scripts/build-component.sh).
+ Сборка: https://github.com/god-termux/packages (components/cosmic-comp.env, scripts/build-component.sh).
  Полный текст GPL-3.0: /usr/share/common-licenses/GPL-3 или https://www.gnu.org/licenses/gpl-3.0.txt
 
 Files: usr/bin/god-cosmic DEBIAN/*
