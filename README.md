@@ -16,17 +16,22 @@
 | 2 | панель, лаунчер, обои, настройки (`cosmic-panel`, `cosmic-launcher`, `cosmic-bg`, `cosmic-settings-daemon`) | не начат |
 | 3 | остальное (`cosmic-applets`, `cosmic-settings`, `cosmic-term`, …) | не начат |
 
-## Запуск на телефоне (план, не проверено)
+## Запуск на телефоне
 
 На Android нет DRM/KMS, поэтому `cosmic-comp` запускается вложенно в Wayland-композитор god-termux, как `labwc` в `xfce-wl`:
 
 ```sh
-dapt install $(cat runtime-packages.txt)   # библиотеки из Debian
-wlrun env COSMIC_BACKEND=winit ./cosmic-comp
+gh run download -R CrafterMinecrafter/god-cosmic -n cosmic-comp-aarch64   # или из вкладки Actions
+chmod +x cosmic-comp
+scripts/run-on-phone.sh ./cosmic-comp
 ```
 
-Бэкенд выбирает `COSMIC_BACKEND` (`kms`, `x11`, `winit`); без переменной при наличии `WAYLAND_DISPLAY` он сначала пробует `x11`.
-Открытый вопрос: будет ли внутри композитора god-termux работать EGL/GL для `winit` или потребуется программный рендер.
+Библиотеки из `NEEDED.txt` уже есть в стандартном дереве Debian (`dapt`): `libdisplay-info2`, `libgbm1`, `libinput10`, `libpixman-1-0`, `libseat1`, `libudev1`, `libxkbcommon0`, `xkb-data`.
+
+Проверено 2026-11-24 на телефоне: композитор запускается, подключается как клиент `winit` к Wayland-композитору god-termux, поднимает EGL и работает без падений.
+Известные ошибки в логе (не фатальные): нет Xwayland, нет D-Bus сессии, `eglQuerySurface BAD_SURFACE`.
+Открытые вопросы: что именно рисуется на экране, ввод, остальные компоненты рабочего стола.
+Шим god-termux до исправления `eaccess()` (коммит `91eccdbe` в god-termux) не находил `/usr/share/X11/xkb`, поэтому `run-on-phone.sh` задаёт `XKB_CONFIG_ROOT`.
 
 ## Сборка вручную
 

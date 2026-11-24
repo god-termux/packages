@@ -62,11 +62,9 @@ aarch64-linux-gnu-objdump -T "$DIST/$BIN" | grep -oE 'GLIBC_[0-9.]+' | sort -uV 
 # (не все NEEDED-библиотеки обязаны быть в базе dpkg: ошибки поиска не должны ронять сборку)
 : > "$DIST/runtime-packages.txt"
 while read -r so; do
-  f=$(ls /usr/lib/aarch64-linux-gnu/"$so" /lib/aarch64-linux-gnu/"$so" 2>/dev/null | head -1 || true)
-  if [ -n "$f" ]; then
-    pkg=$(dpkg -S "$f" 2>/dev/null | head -1 | cut -d: -f1 | sed 's/:arm64//' || true)
-    if [ -n "$pkg" ]; then echo "$pkg" >> "$DIST/runtime-packages.txt"; fi
-  fi
+  # usrmerge: dpkg хранит путь как /lib/..., а не /usr/lib/...; пробуем оба
+  pkg=$(dpkg -S "/lib/aarch64-linux-gnu/$so" "/usr/lib/aarch64-linux-gnu/$so" 2>/dev/null | head -1 | cut -d: -f1 | sed 's/:arm64//' || true)
+  if [ -n "$pkg" ]; then echo "$pkg" >> "$DIST/runtime-packages.txt"; fi
 done < "$DIST/NEEDED.txt"
 sort -u -o "$DIST/runtime-packages.txt" "$DIST/runtime-packages.txt"
 echo "== $NAME: $(du -h "$DIST/$BIN" | cut -f1), glibc max $(cat "$DIST/glibc-max.txt")"
