@@ -1,0 +1,57 @@
+name: Build component
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "Компонент из components/*.env"
+        default: cosmic-comp
+  push:
+    branches: [main]
+    paths:
+      - "components/**"
+      - "scripts/**"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Debian 13: те же версии библиотек, что в дереве dapt на телефоне
+    container: debian:trixie
+    env:
+      COMPONENT: ${{ inputs.component || 'cosmic-comp' }}
+    steps:
+      - name: Git for checkout
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            work/${{ env.COMPONENT }}-src/target
+          key: cargo-${{ env.COMPONENT }}-${{ hashFiles(format('components/{0}.env', env.COMPONENT)) }}
+          restore-keys: cargo-${{ env.COMPONENT }}-
+
+      - name: Build ${{ env.COMPONENT }}
+        run: bash scripts/build-component.sh "$COMPONENT"
+
+      - name: Summary
+        run: |
+          {
+            echo "### $COMPONENT"
+            echo '```'
+            cat "dist/$COMPONENT/SOURCE.txt"
+            echo "glibc max: $(cat dist/$COMPONENT/glibc-max.txt)"
+            echo "NEEDED:"; cat "dist/$COMPONENT/NEEDED.txt"
+            echo "Debian packages (dapt install):"; cat "dist/$COMPONENT/runtime-packages.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COMPONENT }}-aarch64
+          path: dist/${{ env.COMPONENT }}
