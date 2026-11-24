@@ -96,6 +96,7 @@ jobs:
           GPG_KEY_B64: ${{ secrets.GOD_COSMIC_GPG_KEY }}
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils gnupg
+          bash scripts/make-meta.sh
           bash scripts/make-repo.sh
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

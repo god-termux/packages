@@ -1,7 +1,10 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # god-cosmic: композитор COSMIC (cosmic-comp) внутри Wayland-окна god-termux.
 #
-#   god-cosmic [start] [--log LEVEL]   запустить COSMIC (окно Wayland откроется само)
+#   god-cosmic [start] [--desktop] [--log LEVEL]
+#                                      запустить COSMIC (окно Wayland откроется само); --desktop (или GOD_COSMIC_DESKTOP=1)
+#                                      дополнительно запускает settings-daemon, bg, panel и osd, если они установлены
+#                                      (apt: god-cosmic-desktop)
 #   god-cosmic run КОМАНДА [АРГУМЕНТЫ]  запустить Wayland-программу внутри COSMIC
 #   god-cosmic status                  запущен ли COSMIC и какой у него сокет
 #   god-cosmic stop                    остановить COSMIC
@@ -18,7 +21,24 @@ BIN=$D/usr/bin/cosmic-comp
 die() { echo "god-cosmic: $*" >&2; exit 1; }
 [ -x "$BIN" ] || die "не найден $BIN (пакет god-cosmic установлен в $D?)"
 
+DBUSF=$RT/god-cosmic.dbus             # "адрес pid" сеансовой шины D-Bus, которую запустил god-cosmic
+PIDF=$RT/god-cosmic.pids              # процессы рабочего стола (panel, bg, ...)
+
+# сеансовая шина D-Bus: на Android её нет, а panel, applets и settings-daemon без неё не работают
+ensure_dbus() {
+  if [ -f "$DBUSF" ]; then
+    read -r addr pid <"$DBUSF"
+    [ -n "${pid:-}" ] && [ -d "/proc/$pid" ] && { export DBUS_SESSION_BUS_ADDRESS=$addr; return 0; }
+  fi
+  [ -x "$D/usr/bin/dbus-daemon" ] || { echo "god-cosmic: нет dbus-daemon (dapt install dbus)" >&2; return 1; }
+  out=$(env FHS_DEBIAN=1 XDG_RUNTIME_DIR=$RT "$D/usr/bin/dbus-daemon" --session --fork --print-address --print-pid 2>/dev/null) || return 1
+  addr=$(printf '%s\n' "$out" | sed -n 1p); pid=$(printf '%s\n' "$out" | sed -n 2p)
+  [ -n "$addr" ] || return 1
+  echo "$addr $pid" >"$DBUSF"; export DBUS_SESSION_BUS_ADDRESS=$addr
+}
+
 cosmic_env() {
+  ensure_dbus || true
   export FHS_DEBIAN=1 COSMIC_BACKEND=winit XDG_RUNTIME_DIR=$RT NO_AT_BRIDGE=1
   export XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
   export XDG_DATA_DIRS=$D/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
@@ -43,11 +63,21 @@ new_socket() { # печатает имя сокета, появившегося 
   return 1
 }
 
+stop_desktop() {
+  [ -f "$PIDF" ] && { while read -r p; do kill "$p" 2>/dev/null; done <"$PIDF"; rm -f "$PIDF"; }
+  for c in cosmic-settings-daemon cosmic-bg cosmic-panel cosmic-osd cosmic-applets; do
+    for p in /proc/[0-9]*; do
+      case "$({ tr '\0' ' ' <"$p/cmdline"; } 2>/dev/null)" in */"$c"*|"$c"*) case "$(cat "$p/cmdline" 2>/dev/null | tr '\0' ' ')" in *god-cosmic*) ;; *) kill "${p#/proc/}" 2>/dev/null;; esac;; esac
+    done
+  done
+  if [ -f "$DBUSF" ]; then read -r _ pid <"$DBUSF"; [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null; rm -f "$DBUSF"; fi
+}
+
 cmd=${1:-start}; [ $# -gt 0 ] && shift
 case "$cmd" in
   start)
-    LOG=${RUST_LOG:-warn}
-    while [ $# -gt 0 ]; do case "$1" in --log) LOG=${2:?}; shift 2;; *) die "неизвестный параметр: $1";; esac; done
+    LOG=${RUST_LOG:-warn}; DESKTOP=${GOD_COSMIC_DESKTOP:-0}
+    while [ $# -gt 0 ]; do case "$1" in --log) LOG=${2:?}; shift 2;; --desktop) DESKTOP=1; shift;; *) die "неизвестный параметр: $1";; esac; done
     [ -n "$(pids)" ] && die "COSMIC уже запущен (god-cosmic stop)"
     command -v wlrun >/dev/null || die "нет wlrun (нужен god-termux с модом Wayland)"
     wlrun --open || die "композитор god-termux не запустился"
@@ -56,21 +86,30 @@ case "$cmd" in
     # wlrun задаёт WAYLAND_DISPLAY внешнего композитора и запускает команду через env
     wlrun "$BIN" &
     CPID=$!
-    trap 'kill $CPID 2>/dev/null; rm -f "$STATE"; exit 0' INT TERM
+    trap 'kill $CPID 2>/dev/null; stop_desktop; rm -f "$STATE"; exit 0' INT TERM
     if S=$(new_socket); then echo "$S" >"$STATE"; echo "god-cosmic: COSMIC запущен, сокет $S (god-cosmic run КОМАНДА)" >&2
+      if [ "$DESKTOP" = 1 ]; then
+        : >"$PIDF"
+        for c in cosmic-settings-daemon cosmic-bg cosmic-panel cosmic-osd; do
+          [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
+          "$0" run "$D/usr/bin/$c" >"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
+        done
+      fi
     else echo "god-cosmic: сокет COSMIC не появился, смотрите вывод выше" >&2; fi
     wait $CPID; rc=$?; rm -f "$STATE"; exit $rc ;;
   run)
     [ $# -gt 0 ] || die "usage: god-cosmic run КОМАНДА [АРГУМЕНТЫ]"
     [ -f "$STATE" ] || die "COSMIC не запущен (god-cosmic start)"
     cosmic_env
-    exec env WAYLAND_DISPLAY="$(cat "$STATE")" GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland MOZ_ENABLE_WAYLAND=1 "$@" ;;
+    prog=$1; shift
+    case "$prog" in */*) ;; *) [ -x "$D/usr/bin/$prog" ] && prog=$D/usr/bin/$prog;; esac   # имя программы из дерева Debian
+    exec env WAYLAND_DISPLAY="$(cat "$STATE")" GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland MOZ_ENABLE_WAYLAND=1 "$prog" "$@" ;;
   status)
     if [ -n "$(pids)" ] && [ -f "$STATE" ]; then echo "запущен, сокет $(cat "$STATE")"; else echo "не запущен"; exit 1; fi ;;
   stop)
-    p=$(pids); [ -n "$p" ] || { echo "не запущен"; exit 0; }
+    p=$(pids); [ -n "$p" ] || { stop_desktop; rm -f "$STATE"; echo "не запущен"; exit 0; }
     # shellcheck disable=SC2086
-    kill $p 2>/dev/null; rm -f "$STATE"; echo "остановлен" ;;
-  -h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+    kill $p 2>/dev/null; stop_desktop; rm -f "$STATE"; echo "остановлен" ;;
+  -h|--help|help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "неизвестная команда: $cmd (help)" ;;
 esac
