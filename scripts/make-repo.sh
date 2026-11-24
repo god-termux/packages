@@ -6,7 +6,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SITE=$ROOT/site
-URL=${REPO_URL:-https://crafterminecrafter.github.io/god-cosmic}
+URL=${REPO_URL:-https://god-termux.github.io/god-cosmic}
 rm -rf "$SITE"; mkdir -p "$SITE/pool/main/g/god-cosmic" "$SITE/dists/stable/main/binary-arm64" "$SITE/keyrings"
 cp "$ROOT"/dist/deb/*.deb "$SITE/pool/main/g/god-cosmic/"
 cp "$ROOT"/keyrings/god-cosmic-archive-keyring.gpg "$ROOT"/keyrings/god-cosmic-archive-keyring.asc "$SITE/keyrings/"
@@ -42,7 +42,7 @@ curl -fsSL $URL/install.sh | bash
 dapt install god-cosmic
 god-cosmic start
 </pre>
-<p>Исходники сборки: <a href="https://github.com/CrafterMinecrafter/god-cosmic">github.com/CrafterMinecrafter/god-cosmic</a>.</p>
+<p>Исходники сборки: <a href="https://github.com/god-termux/god-cosmic">github.com/god-termux/god-cosmic</a>.</p>
 <ul>
 <li><a href="keyrings/god-cosmic-archive-keyring.asc">ключ репозитория</a></li>
 <li><a href="dists/stable/Release">dists/stable/Release</a></li>

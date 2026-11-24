@@ -21,7 +21,7 @@
 Подписанный apt-репозиторий на GitHub Pages для дерева Debian god-termux (`dapt`):
 
 ```sh
-curl -fsSL https://crafterminecrafter.github.io/god-cosmic/install.sh | bash   # подключает источник и ключ
+curl -fsSL https://god-termux.github.io/god-cosmic/install.sh | bash   # подключает источник и ключ
 dapt update && dapt install god-cosmic
 god-cosmic start                       # откроет окно Wayland и запустит COSMIC
 god-cosmic run КОМАНДА                  # Wayland-программа внутри COSMIC
