@@ -12,7 +12,7 @@ SRCDIR=$ROOT/dist/$NAME
 OUT=$ROOT/dist/deb
 PKG=${PKG:-god-${NAME}}
 DESC=${DESC:-$NAME for god-termux}
-REV=${PKG_REVISION:-1}
+REV=${PKG_REVISION:-$(cat "$ROOT/REVISION" 2>/dev/null || echo 1)}   # повышайте REVISION при изменении упаковки без смены версии исходников
 [ -d "$SRCDIR/bin" ] || { echo "нет $SRCDIR/bin: сначала scripts/build-component.sh $NAME" >&2; exit 1; }
 
 read -r REPO SHA DATE < "$SRCDIR/SOURCE.txt"
