@@ -16,22 +16,27 @@
 | 2 | панель, лаунчер, обои, настройки (`cosmic-panel`, `cosmic-launcher`, `cosmic-bg`, `cosmic-settings-daemon`) | не начат |
 | 3 | остальное (`cosmic-applets`, `cosmic-settings`, `cosmic-term`, …) | не начат |
 
-## Запуск на телефоне
+## Установка на телефон (пакет `god-cosmic`)
 
-На Android нет DRM/KMS, поэтому `cosmic-comp` запускается вложенно в Wayland-композитор god-termux, как `labwc` в `xfce-wl`:
+Подписанный apt-репозиторий на GitHub Pages для дерева Debian god-termux (`dapt`):
 
 ```sh
-gh run download -R CrafterMinecrafter/god-cosmic -n cosmic-comp-aarch64   # или из вкладки Actions
-chmod +x cosmic-comp
-scripts/run-on-phone.sh ./cosmic-comp
+curl -fsSL https://crafterminecrafter.github.io/god-cosmic/install.sh | bash   # подключает источник и ключ
+dapt update && dapt install god-cosmic
+god-cosmic start                       # откроет окно Wayland и запустит COSMIC
+god-cosmic run КОМАНДА                  # Wayland-программа внутри COSMIC
+god-cosmic status | stop
 ```
 
-Библиотеки из `NEEDED.txt` уже есть в стандартном дереве Debian (`dapt`): `libdisplay-info2`, `libgbm1`, `libinput10`, `libpixman-1-0`, `libseat1`, `libudev1`, `libxkbcommon0`, `xkb-data`.
+Пакет содержит `cosmic-comp` и лаунчер `god-cosmic`; `postinst` кладёт команду в `$PREFIX/bin`. Зависимости (из Debian 13): `libdisplay-info2`, `libgbm1`, `libinput10`, `libpixman-1-0`, `libseat1`, `libudev1`, `libxkbcommon0`, `xkb-data`, `libegl1`, `libgles2`, `libwayland-client0`, `libwayland-server0`.
+Ключ репозитория: `keyrings/god-cosmic-archive-keyring.asc`.
 
-Проверено 2026-11-24 на телефоне: композитор запускается, подключается как клиент `winit` к Wayland-композитору god-termux, поднимает EGL и работает без падений.
+На Android нет DRM/KMS, поэтому `cosmic-comp` работает вложенно (бэкенд `winit`) в Wayland-композитор god-termux; параметры окна (разрешение, частота кадров, режим касаний, клавиатура) задаются в приложении, в «Настройках Wayland».
+
+Проверено 2026-11-24 на телефоне: установка из репозитория, запуск, клиент (`es2gears`) внутри, остановка. Замер вложенности на `es2gears` 300×300: медиана 31 FPS против 37 FPS напрямую на композиторе god-termux (разброс большой, цифры ориентировочные).
 Известные ошибки в логе (не фатальные): нет Xwayland, нет D-Bus сессии, `eglQuerySurface BAD_SURFACE`.
-Открытые вопросы: что именно рисуется на экране, ввод, остальные компоненты рабочего стола.
-Шим god-termux до исправления `eaccess()` (коммит `91eccdbe` в god-termux) не находил `/usr/share/X11/xkb`, поэтому `run-on-phone.sh` задаёт `XKB_CONFIG_ROOT`.
+Пока нет: панель, обои, лаунчер приложений и остальные компоненты COSMIC (этап 2), родные касания (`wlcomp` не отдаёт `wl_touch`).
+Шим god-termux до исправления `eaccess()` (коммит `91eccdbe` в god-termux) не находил `/usr/share/X11/xkb`, поэтому лаунчер задаёт `XKB_CONFIG_ROOT`.
 
 ## Сборка вручную
 
