@@ -1,25 +1,41 @@
-name: Build component
+name: Build components
 
 on:
   workflow_dispatch:
     inputs:
       component:
-        description: "Компонент из components/*.env"
-        default: cosmic-comp
+        description: "Компонент из components/*.env (пусто: все)"
+        default: ""
   push:
     branches: [main]
     paths:
       - "components/**"
       - "scripts/**"
+      - "packaging/**"
       - ".github/workflows/build.yml"
 
 jobs:
-  build:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: |
+          if [ -n "${{ inputs.component }}" ]; then list="${{ inputs.component }}"; else list=$(cd components && ls *.env | sed 's/\.env$//'); fi
+          echo "matrix=$(echo $list | tr ' ' '\n' | jq -R . | jq -sc '{component: .}')" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     # Debian 13: те же версии библиотек, что в дереве dapt на телефоне
     container: debian:trixie
     env:
-      COMPONENT: ${{ inputs.component || 'cosmic-comp' }}
+      COMPONENT: ${{ matrix.component }}
     steps:
       - name: Git for checkout
         run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
@@ -40,8 +56,9 @@ jobs:
         run: bash scripts/build-component.sh "$COMPONENT"
 
       - name: Package (.deb)
-        if: env.COMPONENT == 'cosmic-comp'
-        run: bash scripts/make-deb.sh
+        run: |
+          apt-get install -y --no-install-recommends dpkg-dev xz-utils
+          bash scripts/make-deb.sh "$COMPONENT"
 
       - name: Summary
         run: |
@@ -55,29 +72,24 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.COMPONENT }}-aarch64
-          path: dist/${{ env.COMPONENT }}
-
       - name: Upload .deb
-        if: env.COMPONENT == 'cosmic-comp'
         uses: actions/upload-artifact@v4
         with:
-          name: god-cosmic-deb
+          name: deb-${{ env.COMPONENT }}
           path: dist/deb
 
-  # подписанный apt-репозиторий на GitHub Pages: dapt install god-cosmic
+  # подписанный apt-репозиторий на GitHub Pages: dapt install god-cosmic ...
   # (сборка страницы и деплой в разных задачах: иначе deploy-pages не видит только что загруженный артефакт)
   repo:
     needs: build
-    if: github.event_name == 'push' || inputs.component == 'cosmic-comp' || inputs.component == ''
+    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.component == '') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: god-cosmic-deb
+          pattern: deb-*
+          merge-multiple: true
           path: dist/deb
       - name: Build apt repository
         env:
