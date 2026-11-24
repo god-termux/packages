@@ -9,6 +9,22 @@ SITE=$ROOT/site
 URL=${REPO_URL:-https://god-termux.github.io/packages}
 rm -rf "$SITE"; mkdir -p "$SITE/pool/main" "$SITE/dists/stable/main/binary-arm64" "$SITE/keyrings"
 cp "$ROOT"/dist/deb/*.deb "$SITE/pool/main/"
+
+# Пакеты других компонентов берём из уже опубликованного репозитория: сборка одного компонента не должна удалять остальные.
+# Пакет, собранный сейчас, заменяет прежнюю версию с тем же именем.
+if [ "${KEEP_PREVIOUS:-1}" = 1 ]; then
+  PREV=$(mktemp)
+  if curl -fsSL "$URL/dists/stable/main/binary-arm64/Packages" -o "$PREV" 2>/dev/null; then
+    awk -v RS= -F'\n' '{n="";f="";for(i=1;i<=NF;i++){if($i~/^Package: /)n=substr($i,10);if($i~/^Filename: /)f=substr($i,11)} if(n!=""&&f!="")print n" "f}' "$PREV" |
+    while read -r name file; do
+      if ls "$SITE"/pool/main/"${name}"_*.deb >/dev/null 2>&1; then echo "пакет $name пересобран, прежнюю версию не берём"; continue; fi
+      curl -fsSL "$URL/$file" -o "$SITE/pool/main/$(basename "$file")" && echo "сохранён из прежнего репозитория: $file"
+    done
+  else
+    echo "прежний репозиторий недоступен (первая публикация?)" >&2
+  fi
+  rm -f "$PREV"
+fi
 cp "$ROOT"/keyrings/god-termux-archive-keyring.gpg "$ROOT"/keyrings/god-termux-archive-keyring.asc "$SITE/keyrings/"
 
 cd "$SITE"
