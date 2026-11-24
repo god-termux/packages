@@ -25,7 +25,8 @@ apt-get install -y --no-install-recommends ca-certificates curl git build-essent
   gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu $HOST_DEPS $ARM
 # just из репозитория Debian слишком старый для justfile COSMIC (модули `mod`, `a::b`): берём релиз
 if [ "$JUST_INSTALL" = 1 ]; then
-  curl -fsSL https://just.systems/install.sh | bash -s -- --to /usr/local/bin >/dev/null
+  JUST_VER=1.40.0   # скрипт just.systems ходит в API GitHub и упирается в лимит (403): берём архив по прямой ссылке
+  curl -fsSL --retry 5 --retry-delay 3 "https://github.com/casey/just/releases/download/$JUST_VER/just-$JUST_VER-x86_64-unknown-linux-musl.tar.gz" | tar -xz -C /usr/local/bin just
   just --version
 fi
 echo "::endgroup::"
