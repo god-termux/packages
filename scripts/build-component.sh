@@ -21,8 +21,13 @@ dpkg --add-architecture arm64
 apt-get update
 ARM=""; for p in $ARM64_DEPS; do ARM="$ARM $p:arm64"; done
 # shellcheck disable=SC2086
-apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config cmake just \
+apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config cmake \
   gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu $HOST_DEPS $ARM
+# just из репозитория Debian слишком старый для justfile COSMIC (модули `mod`, `a::b`): берём релиз
+if [ "$JUST_INSTALL" = 1 ]; then
+  curl -fsSL https://just.systems/install.sh | bash -s -- --to /usr/local/bin >/dev/null
+  just --version
+fi
 echo "::endgroup::"
 
 echo "::group::source $REPO @ $REF"
