@@ -4,7 +4,7 @@
 # Библиотеки берутся из Debian 13 arm64 (multiarch), как в дереве dapt на телефоне: те же sonames и версии.
 # Результат: dist/NAME/ (bin/*, root/ с установленными файлами, NEEDED.txt, runtime-packages.txt, glibc-max.txt, SOURCE.txt).
 # Переменные components/NAME.env: REPO, REF, CARGO_ARGS, BINS (список исполняемых файлов) или BIN_GLOB, HOST_DEPS, ARM64_DEPS,
-#   BUILD_ENV (переменные окружения сборки, "A=1 B=2"), JUST_INSTALL=1 (после сборки выполнить `just install` в каталог dist/NAME/root).
+#   BUILD_ENV (переменные окружения сборки, "A=1 B=2"), INSTALL_FILES="src:dst ..." (файлы из исходников в пакет), JUST_INSTALL=1 (после сборки выполнить `just install` в каталог dist/NAME/root).
 set -euo pipefail
 NAME=${1:?usage: build-component.sh NAME}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -81,6 +81,13 @@ if [ "$JUST_INSTALL" = 1 ]; then
   find "$DIST/root" -type f | sed "s|$DIST/root/||" | sort | head -80
   echo "::endgroup::"
 fi
+
+# файлы из исходников без justfile: INSTALL_FILES="путь_в_исходниках:путь_в_пакете ..."
+for pair in ${INSTALL_FILES:-}; do
+  src=${pair%%:*}; dst=${pair#*:}
+  [ -e "$SRC/$src" ] || { echo "нет $SRC/$src (INSTALL_FILES)" >&2; exit 1; }
+  install -Dm0644 "$SRC/$src" "$DIST/root/$dst"
+done
 
 # NEEDED, версия glibc и пакеты Debian считаем по всем бинарникам
 : > "$DIST/NEEDED.txt"; : > "$DIST/glibc-max.txt.all"
