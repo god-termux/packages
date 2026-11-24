@@ -27,8 +27,8 @@ install -d "$ROOTFS/usr/bin" "$ROOTFS/usr/share/doc/$PKG" "$ROOTFS/DEBIAN"
 for b in "$SRCDIR"/bin/*; do install -m755 "$b" "$ROOTFS/usr/bin/$(basename "$b")"; done
 
 # зависимости: библиотеки из NEEDED (кроме libc/libm/libgcc_s: их закрывают пакеты-заглушки Termux glibc) + xkb-data и EGL/Wayland на время работы
-DEPS=$(grep -vE '^(libc6|libgcc-s1|libm6)$' "$SRCDIR/runtime-packages.txt" | sort -u | tr '\n' ',' | sed 's/,$//')
-EXTRA="xkb-data, libegl1, libgles2, libwayland-client0, libwayland-server0${DEPENDS_EXTRA:+, $DEPENDS_EXTRA}"
+DEPS=$({ grep -vE '^(libc6|libgcc-s1|libm6)$' "$SRCDIR/runtime-packages.txt" || true; } | sort -u | tr '\n' ',' | sed 's/,$//')
+if [ "${DATA_ONLY:-0}" = 1 ]; then EXTRA="${DEPENDS_EXTRA:-}"; else EXTRA="xkb-data, libegl1, libgles2, libwayland-client0, libwayland-server0${DEPENDS_EXTRA:+, $DEPENDS_EXTRA}"; fi
 DEPENDS=$(printf '%s, %s' "$DEPS" "$EXTRA" | sed 's/^, //' | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sort -u | paste -sd, - | sed 's/,/, /g')
 
 SIZE=$(du -sk "$ROOTFS" | cut -f1)
@@ -40,7 +40,7 @@ else
   cat > "$ROOTFS/DEBIAN/control" <<EOF2
 Package: $PKG
 Version: $VERSION
-Architecture: arm64
+Architecture: $([ "${DATA_ONLY:-0}" = 1 ] && echo all || echo arm64)
 Maintainer: CrafterMinecrafter <CrafterMinecrafter@users.noreply.github.com>
 Installed-Size: $SIZE
 Depends: $DEPENDS
@@ -79,7 +79,7 @@ find "$ROOTFS" -type f -exec chmod 644 {} +
 for x in "$ROOTFS"/usr/bin/* "$ROOTFS"/DEBIAN/postinst "$ROOTFS"/DEBIAN/prerm; do [ -e "$x" ] && [ ! -L "$x" ] && chmod 755 "$x"; done
 
 mkdir -p "$OUT"
-DEB=$OUT/${PKG}_${VERSION}_arm64.deb
+DEB=$OUT/${PKG}_${VERSION}_$([ "${DATA_ONLY:-0}" = 1 ] && echo all || echo arm64).deb
 dpkg-deb --root-owner-group -Zxz --build "$ROOTFS" "$DEB"
 echo "собрано: $DEB ($(du -h "$DEB" | cut -f1))"
 dpkg-deb -I "$DEB" | sed -n '1,/^ Description/p' | head -14

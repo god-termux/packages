@@ -38,6 +38,15 @@ git -C "$SRC" checkout -q FETCH_HEAD
 echo "$REPO $(git -C "$SRC" rev-parse HEAD) $(git -C "$SRC" log -1 --format=%cs)" > "$DIST/SOURCE.txt"
 echo "::endgroup::"
 
+if [ "${DATA_ONLY:-0}" = 1 ]; then   # пакет без кода (иконки): только `just install`
+  echo "::group::just install (data only)"
+  (cd "$SRC" && just --set rootdir "$DIST/root" install)
+  echo "::endgroup::"
+  : > "$DIST/NEEDED.txt"; : > "$DIST/runtime-packages.txt"; echo "n/a" > "$DIST/glibc-max.txt"
+  echo "== $NAME: data only, $(du -sh "$DIST/root" | cut -f1)"
+  exit 0
+fi
+
 echo "::group::rust"
 if ! command -v rustup >/dev/null; then curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none; fi
 export PATH="$HOME/.cargo/bin:$PATH"
