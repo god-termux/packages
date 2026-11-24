@@ -1,0 +1,76 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# god-cosmic: композитор COSMIC (cosmic-comp) внутри Wayland-окна god-termux.
+#
+#   god-cosmic [start] [--log LEVEL]   запустить COSMIC (окно Wayland откроется само)
+#   god-cosmic run КОМАНДА [АРГУМЕНТЫ]  запустить Wayland-программу внутри COSMIC
+#   god-cosmic status                  запущен ли COSMIC и какой у него сокет
+#   god-cosmic stop                    остановить COSMIC
+#
+# На Android нет DRM/KMS, поэтому cosmic-comp работает вложенно (бэкенд winit) в композиторе god-termux (wlcomp).
+# Параметры окна (разрешение, частота кадров, режим касаний, клавиатура) задаются в приложении: Настройки Wayland.
+set -u
+P=${PREFIX:-/data/data/com.termux/files/usr}
+D=${DAPT_ROOT:-$P/debian}
+RT=$P/tmp
+STATE=$RT/god-cosmic.display          # имя сокета Wayland, который открыл cosmic-comp
+BIN=$D/usr/bin/cosmic-comp
+
+die() { echo "god-cosmic: $*" >&2; exit 1; }
+[ -x "$BIN" ] || die "не найден $BIN (пакет god-cosmic установлен в $D?)"
+
+cosmic_env() {
+  export FHS_DEBIAN=1 COSMIC_BACKEND=winit XDG_RUNTIME_DIR=$RT NO_AT_BRIDGE=1
+  export XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+  export XDG_DATA_DIRS=$D/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
+  # libxkbcommon проверяет каталог раскладок через eaccess(); шим god-termux до исправления его не переводил
+  [ -d "$D/usr/share/X11/xkb" ] && export XKB_CONFIG_ROOT=$D/usr/share/X11/xkb
+}
+
+pids() { for p in /proc/[0-9]*; do
+  c=$({ tr '\0' ' ' <"$p/cmdline"; } 2>/dev/null) || continue
+  case "$c" in */cosmic-comp*) case "$c" in *god-cosmic*) ;; *) echo "${p#/proc/}";; esac;; esac
+done; }
+
+new_socket() { # печатает имя сокета, появившегося после запуска
+  for i in $(seq 1 60); do
+    for s in "$RT"/wayland-[0-9]*; do
+      case "$s" in *.lock) continue;; esac
+      n=${s##*/}
+      case " $BEFORE " in *" $n "*) ;; *) [ -S "$s" ] && { echo "$n"; return 0; };; esac
+    done
+    sleep 0.5
+  done
+  return 1
+}
+
+cmd=${1:-start}; [ $# -gt 0 ] && shift
+case "$cmd" in
+  start)
+    LOG=${RUST_LOG:-warn}
+    while [ $# -gt 0 ]; do case "$1" in --log) LOG=${2:?}; shift 2;; *) die "неизвестный параметр: $1";; esac; done
+    [ -n "$(pids)" ] && die "COSMIC уже запущен (god-cosmic stop)"
+    command -v wlrun >/dev/null || die "нет wlrun (нужен god-termux с модом Wayland)"
+    wlrun --open || die "композитор god-termux не запустился"
+    cosmic_env; export RUST_LOG=$LOG
+    BEFORE=$(cd "$RT" && ls -d wayland-[0-9]* 2>/dev/null | grep -v '\.lock$' | tr '\n' ' ')
+    # wlrun задаёт WAYLAND_DISPLAY внешнего композитора и запускает команду через env
+    wlrun "$BIN" &
+    CPID=$!
+    trap 'kill $CPID 2>/dev/null; rm -f "$STATE"; exit 0' INT TERM
+    if S=$(new_socket); then echo "$S" >"$STATE"; echo "god-cosmic: COSMIC запущен, сокет $S (god-cosmic run КОМАНДА)" >&2
+    else echo "god-cosmic: сокет COSMIC не появился, смотрите вывод выше" >&2; fi
+    wait $CPID; rc=$?; rm -f "$STATE"; exit $rc ;;
+  run)
+    [ $# -gt 0 ] || die "usage: god-cosmic run КОМАНДА [АРГУМЕНТЫ]"
+    [ -f "$STATE" ] || die "COSMIC не запущен (god-cosmic start)"
+    cosmic_env
+    exec env WAYLAND_DISPLAY="$(cat "$STATE")" GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland MOZ_ENABLE_WAYLAND=1 "$@" ;;
+  status)
+    if [ -n "$(pids)" ] && [ -f "$STATE" ]; then echo "запущен, сокет $(cat "$STATE")"; else echo "не запущен"; exit 1; fi ;;
+  stop)
+    p=$(pids); [ -n "$p" ] || { echo "не запущен"; exit 0; }
+    # shellcheck disable=SC2086
+    kill $p 2>/dev/null; rm -f "$STATE"; echo "остановлен" ;;
+  -h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "неизвестная команда: $cmd (help)" ;;
+esac

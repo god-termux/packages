@@ -1,0 +1,15 @@
+Package: god-cosmic
+Version: @VERSION@
+Architecture: arm64
+Maintainer: CrafterMinecrafter <CrafterMinecrafter@users.noreply.github.com>
+Installed-Size: @SIZE@
+Depends: @DEPENDS@
+Section: x11
+Priority: optional
+Homepage: https://github.com/CrafterMinecrafter/god-cosmic
+Description: COSMIC compositor for god-termux (nested in the Wayland window)
+ cosmic-comp (pop-os/cosmic-comp, commit @COMMIT@) built for aarch64 glibc,
+ with the god-cosmic launcher. Android has no DRM/KMS, so the compositor runs
+ nested (winit backend) inside the god-termux Wayland compositor.
+ .
+ Commands: god-cosmic start | run COMMAND | status | stop.

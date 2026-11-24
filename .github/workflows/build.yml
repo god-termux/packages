@@ -39,6 +39,10 @@ jobs:
       - name: Build ${{ env.COMPONENT }}
         run: bash scripts/build-component.sh "$COMPONENT"
 
+      - name: Package (.deb)
+        if: env.COMPONENT == 'cosmic-comp'
+        run: bash scripts/make-deb.sh
+
       - name: Summary
         run: |
           {
@@ -55,3 +59,41 @@ jobs:
         with:
           name: ${{ env.COMPONENT }}-aarch64
           path: dist/${{ env.COMPONENT }}
+
+      - name: Upload .deb
+        if: env.COMPONENT == 'cosmic-comp'
+        uses: actions/upload-artifact@v4
+        with:
+          name: god-cosmic-deb
+          path: dist/deb
+
+  # подписанный apt-репозиторий на GitHub Pages: dapt install god-cosmic
+  publish:
+    needs: build
+    if: github.event_name == 'push' || inputs.component == 'cosmic-comp' || inputs.component == ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: god-cosmic-deb
+          path: dist/deb
+      - name: Build apt repository
+        env:
+          GPG_KEY_B64: ${{ secrets.GOD_COSMIC_GPG_KEY }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils gnupg
+          bash scripts/make-repo.sh
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

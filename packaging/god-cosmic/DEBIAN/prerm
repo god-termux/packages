@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+P=${PREFIX:-/data/data/com.termux/files/usr}
+D=${DAPT_ROOT:-$P/debian}
+case "$1" in
+  remove|purge)
+    # убираем только свою ссылку
+    if [ -L "$P/bin/god-cosmic" ] && [ "$(readlink "$P/bin/god-cosmic")" = "$D/usr/bin/god-cosmic" ]; then rm -f "$P/bin/god-cosmic"; fi ;;
+esac
+exit 0

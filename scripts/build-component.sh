@@ -27,7 +27,7 @@ SRC=$WORK/$NAME-src
 if [ ! -d "$SRC/.git" ]; then git init -q "$SRC"; git -C "$SRC" remote add origin "$REPO"; fi
 git -C "$SRC" fetch -q --depth 1 origin "$REF"
 git -C "$SRC" checkout -q FETCH_HEAD
-echo "$REPO $(git -C "$SRC" rev-parse HEAD)" > "$DIST/SOURCE.txt"
+echo "$REPO $(git -C "$SRC" rev-parse HEAD) $(git -C "$SRC" log -1 --format=%cs)" > "$DIST/SOURCE.txt"
 echo "::endgroup::"
 
 echo "::group::rust"

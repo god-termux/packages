@@ -1,0 +1,12 @@
+#!/bin/sh
+# Делаем команду god-cosmic доступной из обычной оболочки Termux ($PREFIX/bin), а не только в дереве Debian.
+set -e
+P=${PREFIX:-/data/data/com.termux/files/usr}
+D=${DAPT_ROOT:-$P/debian}
+case "$1" in
+  configure)
+    if [ -d "$P/bin" ] && [ -x "$D/usr/bin/god-cosmic" ]; then
+      ln -sf "$D/usr/bin/god-cosmic" "$P/bin/god-cosmic" || true
+    fi ;;
+esac
+exit 0
