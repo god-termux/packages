@@ -63,13 +63,21 @@ new_socket() { # печатает имя сокета, появившегося 
   return 1
 }
 
+desktop_procs() { # все процессы COSMIC из дерева Debian, кроме композитора и самого лаунчера
+  for p in /proc/[0-9]*; do
+    c=$({ tr '\0' ' ' <"$p/cmdline"; } 2>/dev/null) || continue
+    case "$c" in *"$D"/usr/bin/cosmic-comp*) continue;; *"$D"/usr/bin/cosmic-*) echo "${p#/proc/}";; esac
+  done
+}
+
 stop_desktop() {
   [ -f "$PIDF" ] && { while read -r p; do kill "$p" 2>/dev/null; done <"$PIDF"; rm -f "$PIDF"; }
-  for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd cosmic-applets; do
-    for p in /proc/[0-9]*; do
-      case "$({ tr '\0' ' ' <"$p/cmdline"; } 2>/dev/null)" in */"$c"*|"$c"*) case "$(cat "$p/cmdline" 2>/dev/null | tr '\0' ' ')" in *god-cosmic*) ;; *) kill "${p#/proc/}" 2>/dev/null;; esac;; esac
-    done
-  done
+  # shellcheck disable=SC2046
+  kill $(desktop_procs) 2>/dev/null
+  sleep 1
+  # зависшие (settings-daemon в цикле перезапуска pipewire не реагирует на TERM)
+  # shellcheck disable=SC2046
+  kill -9 $(desktop_procs) 2>/dev/null
   if [ -f "$DBUSF" ]; then read -r _ pid <"$DBUSF"; [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null; rm -f "$DBUSF"; fi
 }
 
