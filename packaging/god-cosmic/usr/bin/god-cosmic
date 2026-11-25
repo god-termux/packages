@@ -92,8 +92,14 @@ case "$cmd" in
         : >"$PIDF"
         for c in cosmic-settings-daemon cosmic-bg cosmic-panel cosmic-osd; do
           [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
-          "$0" run "$D/usr/bin/$c" >"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
+          "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
         done
+        # сторож: лог компонента не должен разрастаться (раньше зациклившийся клиент забил диск)
+        ( while kill -0 $CPID 2>/dev/null; do
+            for f in "$RT"/god-cosmic-*.log; do
+              [ -f "$f" ] && [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -gt 10485760 ] && : >"$f"
+            done; sleep 20; done ) >/dev/null 2>&1 &
+        echo $! >>"$PIDF"
       fi
     else echo "god-cosmic: сокет COSMIC не появился, смотрите вывод выше" >&2; fi
     wait $CPID; rc=$?; rm -f "$STATE"; exit $rc ;;
