@@ -2,7 +2,7 @@
 # Собирает Debian-пакет (arm64) из результата build-component.sh.
 #   scripts/make-deb.sh [NAME]     NAME = components/NAME.env (по умолчанию cosmic-comp); читает dist/NAME/, пишет dist/deb/<PKG>_<версия>_arm64.deb
 # Имя пакета PKG и описание DESC берутся из env компонента; cosmic-comp (PKG=god-cosmic) дополнительно получает лаунчер из packaging/god-cosmic.
-# Версия: <версия cosmic-comp>+git<дата коммита>.<короткий хэш>-<PKG_REVISION>
+# Версия: <версия cosmic-comp>+git<дата коммита>.r<REVISION>.<короткий хэш>-1
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NAME=${1:-cosmic-comp}
@@ -17,7 +17,7 @@ REV=${PKG_REVISION:-$(cat "$ROOT/REVISION" 2>/dev/null || echo 1)}   # повы�
 
 read -r REPO SHA DATE < "$SRCDIR/SOURCE.txt"
 UPSTREAM_VER=${UPSTREAM_VER:-1.0.0}
-VERSION="$UPSTREAM_VER+git${DATE//-/}.${SHA:0:7}-$REV"
+VERSION="$UPSTREAM_VER+git${DATE//-/}.r$REV.${SHA:0:7}-1"   # r<REV> до хеша: иначе dpkg сравнивает хеши как строки и принимает новую сборку за понижение
 
 ROOTFS=$(mktemp -d); trap 'rm -rf "$ROOTFS"' EXIT
 [ -d "$ROOT/packaging/$PKG" ] && cp -a "$ROOT/packaging/$PKG/." "$ROOTFS/"
