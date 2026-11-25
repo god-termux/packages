@@ -51,12 +51,12 @@ pids() { for p in /proc/[0-9]*; do
   case "$c" in */cosmic-comp*) case "$c" in *god-cosmic*) ;; *) echo "${p#/proc/}";; esac;; esac
 done; }
 
-new_socket() { # печатает имя сокета, появившегося после запуска
+new_socket() { # печатает имя сокета, появившегося или пересозданного после запуска ($MARK)
   for i in $(seq 1 60); do
     for s in "$RT"/wayland-[0-9]*; do
       case "$s" in *.lock) continue;; esac
-      n=${s##*/}
-      case " $BEFORE " in *" $n "*) ;; *) [ -S "$s" ] && { echo "$n"; return 0; };; esac
+      # старый сокет с тем же именем (остался от прошлого запуска) comp переиспользует: сравниваем по времени
+      [ -S "$s" ] && [ "$s" -nt "$MARK" ] && { echo "${s##*/}"; return 0; }
     done
     sleep 0.5
   done
@@ -65,7 +65,7 @@ new_socket() { # печатает имя сокета, появившегося 
 
 stop_desktop() {
   [ -f "$PIDF" ] && { while read -r p; do kill "$p" 2>/dev/null; done <"$PIDF"; rm -f "$PIDF"; }
-  for c in cosmic-settings-daemon cosmic-bg cosmic-panel cosmic-osd cosmic-applets; do
+  for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd cosmic-applets; do
     for p in /proc/[0-9]*; do
       case "$({ tr '\0' ' ' <"$p/cmdline"; } 2>/dev/null)" in */"$c"*|"$c"*) case "$(cat "$p/cmdline" 2>/dev/null | tr '\0' ' ')" in *god-cosmic*) ;; *) kill "${p#/proc/}" 2>/dev/null;; esac;; esac
     done
@@ -82,7 +82,7 @@ case "$cmd" in
     command -v wlrun >/dev/null || die "нет wlrun (нужен god-termux с модом Wayland)"
     wlrun --open || die "композитор god-termux не запустился"
     cosmic_env; export RUST_LOG=$LOG
-    BEFORE=$(cd "$RT" && ls -d wayland-[0-9]* 2>/dev/null | grep -v '\.lock$' | tr '\n' ' ')
+    MARK=$RT/god-cosmic.mark; : >"$MARK"; sleep 1
     # wlrun задаёт WAYLAND_DISPLAY внешнего композитора и запускает команду через env
     wlrun "$BIN" &
     CPID=$!
@@ -90,7 +90,7 @@ case "$cmd" in
     if S=$(new_socket); then echo "$S" >"$STATE"; echo "god-cosmic: COSMIC запущен, сокет $S (god-cosmic run КОМАНДА)" >&2
       if [ "$DESKTOP" = 1 ]; then
         : >"$PIDF"
-        for c in cosmic-settings-daemon cosmic-bg cosmic-panel cosmic-osd; do
+        for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd; do
           [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
           "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
         done
