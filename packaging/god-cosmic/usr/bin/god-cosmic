@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # god-cosmic: композитор COSMIC (cosmic-comp) внутри Wayland-окна god-termux.
 #
-#   god-cosmic [start] [--desktop] [--log LEVEL]
+#   god-cosmic [start] [--desktop] [--native] [--log LEVEL]   (--native: композитор в приложении, мод cosmic)
 #                                      запустить COSMIC (окно Wayland откроется само); --desktop (или GOD_COSMIC_DESKTOP=1)
 #                                      дополнительно запускает settings-daemon, bg, panel и osd, если они установлены
 #                                      (apt: god-cosmic-desktop)
@@ -81,11 +81,39 @@ stop_desktop() {
   if [ -f "$DBUSF" ]; then read -r _ pid <"$DBUSF"; [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null; rm -f "$DBUSF"; fi
 }
 
+# Нативный режим: cosmic-comp живёт в приложении (мод cosmic, рисует на GPU), лаунчер только поднимает компоненты стола
+start_native() {
+  command -v cosmic-native >/dev/null || die "нет мода cosmic (god-termux/god-termux, god/mods/cosmic/install.sh)"
+  cosmic_env
+  rm -f "$RT/cosmic-socket"
+  cosmic-native >/dev/null 2>&1 || die "не удалось открыть экран COSMIC (мод cosmic загружен? перезапустите Termux)"
+  S=""
+  for i in $(seq 1 120); do
+    [ -s "$RT/cosmic-socket" ] && S=$(cat "$RT/cosmic-socket") && [ -S "$RT/$S" ] && break
+    S=""; sleep 0.5
+  done
+  [ -n "$S" ] || die "композитор в приложении не создал сокет (см. $RT/cosmic-comp.log и logcat, тег cosmic-comp)"
+  echo "$S" >"$STATE"; echo "god-cosmic: нативный COSMIC, сокет $S (god-cosmic run КОМАНДА)" >&2
+  trap 'stop_desktop; rm -f "$STATE"; exit 0' INT TERM
+  if [ "$DESKTOP" = 1 ]; then
+    : >"$PIDF"
+    for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd; do
+      [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
+      "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
+    done
+  fi
+  # пока сокет композитора жив (приложение работает), держим сеанс; затем гасим компоненты
+  while [ -S "$RT/$S" ]; do sleep 5; done
+  stop_desktop; rm -f "$STATE"
+}
+
 cmd=${1:-start}; [ $# -gt 0 ] && shift
 case "$cmd" in
   start)
     LOG=${RUST_LOG:-warn}; DESKTOP=${GOD_COSMIC_DESKTOP:-0}
-    while [ $# -gt 0 ]; do case "$1" in --log) LOG=${2:?}; shift 2;; --desktop) DESKTOP=1; shift;; *) die "неизвестный параметр: $1";; esac; done
+    NATIVE=0
+    while [ $# -gt 0 ]; do case "$1" in --log) LOG=${2:?}; shift 2;; --desktop) DESKTOP=1; shift;; --native) NATIVE=1; shift;; *) die "неизвестный параметр: $1";; esac; done
+    if [ "$NATIVE" = 1 ]; then start_native; exit $?; fi
     [ -n "$(pids)" ] && die "COSMIC уже запущен (god-cosmic stop)"
     command -v wlrun >/dev/null || die "нет wlrun (нужен god-termux с модом Wayland)"
     wlrun --open || die "композитор god-termux не запустился"
@@ -119,9 +147,17 @@ case "$cmd" in
     case "$prog" in */*) ;; *) [ -x "$D/usr/bin/$prog" ] && prog=$D/usr/bin/$prog;; esac   # имя программы из дерева Debian
     exec env WAYLAND_DISPLAY="$(cat "$STATE")" GDK_BACKEND=wayland QT_QPA_PLATFORM=wayland MOZ_ENABLE_WAYLAND=1 "$prog" "$@" ;;
   status)
-    if [ -n "$(pids)" ] && [ -f "$STATE" ]; then echo "запущен, сокет $(cat "$STATE")"; else echo "не запущен"; exit 1; fi ;;
+    if [ -n "$(pids)" ] && [ -f "$STATE" ]; then echo "запущен, сокет $(cat "$STATE")"
+    elif [ -f "$STATE" ] && [ -S "$RT/$(cat "$STATE")" ]; then echo "запущен (нативный, в приложении), сокет $(cat "$STATE")"
+    else echo "не запущен"; exit 1; fi ;;
   stop)
-    p=$(pids); [ -n "$p" ] || { stop_desktop; rm -f "$STATE"; echo "не запущен"; exit 0; }
+    p=$(pids)
+    if [ -z "$p" ]; then
+      native=0; [ -f "$STATE" ] && [ -S "$RT/$(cat "$STATE")" ] && native=1
+      stop_desktop; rm -f "$STATE"
+      if [ "$native" = 1 ]; then echo "компоненты остановлены (композитор живёт в приложении: закройте экран COSMIC)"; else echo "не запущен"; fi
+      exit 0
+    fi
     # shellcheck disable=SC2086
     kill $p 2>/dev/null; stop_desktop; rm -f "$STATE"; echo "остановлен" ;;
   -h|--help|help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
