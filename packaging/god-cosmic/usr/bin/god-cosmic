@@ -31,7 +31,9 @@ ensure_dbus() {
     [ -n "${pid:-}" ] && [ -d "/proc/$pid" ] && { export DBUS_SESSION_BUS_ADDRESS=$addr; return 0; }
   fi
   [ -x "$D/usr/bin/dbus-daemon" ] || { echo "god-cosmic: нет dbus-daemon (dapt install dbus)" >&2; return 1; }
-  out=$(env FHS_DEBIAN=1 XDG_RUNTIME_DIR=$RT "$D/usr/bin/dbus-daemon" --session --fork --print-address --print-pid 2>/dev/null) || return 1
+  # адрес фиксирован ($RT/bus): композитор в приложении (мод cosmic) не получает переменных окружения и ищет шину именно там
+  rm -f "$RT/bus"
+  out=$(env FHS_DEBIAN=1 XDG_RUNTIME_DIR=$RT "$D/usr/bin/dbus-daemon" --session --address="unix:path=$RT/bus" --fork --print-address --print-pid 2>/dev/null) || return 1
   addr=$(printf '%s\n' "$out" | sed -n 1p); pid=$(printf '%s\n' "$out" | sed -n 2p)
   [ -n "$addr" ] || return 1
   echo "$addr $pid" >"$DBUSF"; export DBUS_SESSION_BUS_ADDRESS=$addr
@@ -81,10 +83,20 @@ stop_desktop() {
   if [ -f "$DBUSF" ]; then read -r _ pid <"$DBUSF"; [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null; rm -f "$DBUSF"; fi
 }
 
+# апплет экранной клавиатуры в панель (если пользователь не настроил панель сам)
+ensure_osk_applet() {
+  src=$D/usr/share/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings
+  dst=${XDG_CONFIG_HOME:-$HOME/.config}/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings
+  [ -f "$src" ] && [ ! -f "$dst" ] && [ -x "$D/usr/bin/cosmic-applet-osk" ] || return 0
+  mkdir -p "$(dirname "$dst")"
+  sed 's/"com.system76.CosmicAppletInputSources"/"com.system76.CosmicAppletOsk","com.system76.CosmicAppletInputSources"/' "$src" >"$dst"
+}
+
 # Нативный режим: cosmic-comp живёт в приложении (мод cosmic, рисует на GPU), лаунчер только поднимает компоненты стола
 start_native() {
   command -v cosmic-native >/dev/null || die "нет мода cosmic (god-termux/god-termux, god/mods/cosmic/install.sh)"
   cosmic_env
+  ensure_osk_applet
   rm -f "$RT/cosmic-socket"
   rm -f "$RT/cosmic-mod.log"
   out=$(cosmic-native 2>&1) || die "не удалось открыть экран COSMIC: $out (мод cosmic загружен? перезапустите Termux)"
@@ -104,7 +116,7 @@ start_native() {
   trap 'stop_desktop; rm -f "$STATE"; exit 0' INT TERM
   if [ "$DESKTOP" = 1 ]; then
     : >"$PIDF"
-    for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd; do
+    for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd cosmic-osk; do
       [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
       "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
     done
@@ -133,7 +145,7 @@ case "$cmd" in
     if S=$(new_socket); then echo "$S" >"$STATE"; echo "god-cosmic: COSMIC запущен, сокет $S (god-cosmic run КОМАНДА)" >&2
       if [ "$DESKTOP" = 1 ]; then
         : >"$PIDF"
-        for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd; do
+        for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd cosmic-osk; do
           [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
           "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
         done
