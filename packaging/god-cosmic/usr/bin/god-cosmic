@@ -104,13 +104,18 @@ start_native() {
   command -v cosmic-native >/dev/null || die "нет мода cosmic (god-termux/god-termux, god/mods/cosmic/install.sh)"
   cosmic_env
   ensure_osk_applet; ensure_osk_state
-  rm -f "$RT/cosmic-socket"
-  rm -f "$RT/cosmic-mod.log"
+  # композитор живёт в процессе приложения: файл cosmic-socket актуален, если он новее самого процесса приложения
+  app=$(ps -A -o pid,args 2>/dev/null | awk '$2=="com.termux"{print $1; exit}')
+  fresh() { [ -s "$RT/cosmic-socket" ] && S=$(cat "$RT/cosmic-socket") && [ -S "$RT/$S" ] && { [ -z "$app" ] || [ "$RT/cosmic-socket" -nt "/proc/$app" ]; }; }
+  S=""
+  if ! fresh; then
+    S=""; rm -f "$RT/cosmic-socket"
+  fi
+  rm -f "$RT/cosmic-mod.log.old"; [ -f "$RT/cosmic-mod.log" ] && mv "$RT/cosmic-mod.log" "$RT/cosmic-mod.log.old"
   out=$(cosmic-native 2>&1) || die "не удалось открыть экран COSMIC: $out (мод cosmic загружен? перезапустите Termux)"
   case "$out" in *Error*|*rror:*) die "am start: $out";; esac
-  S=""
   for i in $(seq 1 120); do
-    [ -s "$RT/cosmic-socket" ] && S=$(cat "$RT/cosmic-socket") && [ -S "$RT/$S" ] && break
+    fresh && break
     S=""; sleep 0.5
   done
   if [ -z "$S" ]; then
@@ -122,11 +127,18 @@ start_native() {
   echo "$S" >"$STATE"; echo "god-cosmic: нативный COSMIC, сокет $S (god-cosmic run КОМАНДА)" >&2
   trap 'stop_desktop; rm -f "$STATE"; exit 0' INT TERM
   if [ "$DESKTOP" = 1 ]; then
-    : >"$PIDF"
-    for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd cosmic-osk; do
-      [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
-      "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 & echo $! >>"$PIDF"; sleep 1
-    done
+    if [ -n "$(desktop_procs)" ]; then
+      echo "god-cosmic: компоненты стола уже запущены" >&2
+    else
+      : >"$PIDF"
+      for c in cosmic-settings-daemon cosmic-bg cosmic-notifications cosmic-panel cosmic-osd cosmic-osk; do
+        [ -x "$D/usr/bin/$c" ] || { echo "god-cosmic: $c не установлен, пропускаю" >&2; continue; }
+        # setsid: компоненты не умирают вместе с терминалом, из которого запущен лаунчер
+        if command -v setsid >/dev/null; then setsid -f "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 </dev/null
+        else nohup "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 </dev/null & fi
+        sleep 1
+      done
+    fi
   fi
   # пока сокет композитора жив (приложение работает), держим сеанс; затем гасим компоненты
   while [ -S "$RT/$S" ]; do sleep 5; done
