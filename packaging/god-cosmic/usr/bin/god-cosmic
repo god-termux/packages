@@ -42,6 +42,8 @@ ensure_dbus() {
 cosmic_env() {
   ensure_dbus || true
   export FHS_DEBIAN=1 COSMIC_BACKEND=winit XDG_RUNTIME_DIR=$RT NO_AT_BRIDGE=1
+  # «системная» шина (UPower, NetworkManager от моста Android) и звук (PulseAudio для Android)
+  export DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RT/system_bus PULSE_SERVER=unix:$RT/pulse-native
   export XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
   export XDG_DATA_DIRS=$D/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
   # libxkbcommon проверяет каталог раскладок через eaccess(); шим god-termux до исправления его не переводил
@@ -81,6 +83,41 @@ stop_desktop() {
   # shellcheck disable=SC2046
   kill -9 $(desktop_procs) 2>/dev/null
   if [ -f "$DBUSF" ]; then read -r _ pid <"$DBUSF"; [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null; rm -f "$DBUSF"; fi
+  for p in /proc/[0-9]*; do
+    case "$({ tr '\0' ' ' <"$p/cmdline"; } 2>/dev/null)" in *god-cosmic-clipboard*) kill "${p#/proc/}" 2>/dev/null;; esac
+  done
+  stop_services
+}
+
+# --- службы Android для COSMIC: системная шина + мост (UPower/NetworkManager из данных мода xfcestatus) и звук ---
+SYSBUSPID=$RT/god-cosmic.sysbus; BRIDGEPID=$RT/god-cosmic.bridge
+alive_pid() { [ -f "$1" ] && read -r _p <"$1" && [ -n "${_p:-}" ] && [ -d "/proc/$_p" ]; }
+
+start_services() {
+  # системная шина для апплетов: обычный dbus-daemon на сокете $RT/system_bus (DBUS_SYSTEM_BUS_ADDRESS)
+  if ! alive_pid "$SYSBUSPID" && [ -x "$D/usr/bin/dbus-daemon" ]; then
+    rm -f "$RT/system_bus"
+    env FHS_DEBIAN=1 XDG_RUNTIME_DIR=$RT "$D/usr/bin/dbus-daemon" --session --address="unix:path=$RT/system_bus" --fork --print-pid >"$SYSBUSPID" 2>/dev/null || rm -f "$SYSBUSPID"
+  fi
+  # мост Android -> COSMIC (бинарь ставится вместе с модом cosmic)
+  br=$(command -v god-android-bridge || true); [ -x "$br" ] || br=$HOME/.termux/mods/cosmic/bin/god-android-bridge
+  if [ -x "$br" ] && ! alive_pid "$BRIDGEPID" && alive_pid "$SYSBUSPID"; then
+    DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RT/system_bus setsid -f "$br" >>"$RT/god-cosmic-bridge.log" 2>&1 </dev/null
+    sleep 1; pid=$(ps -A -o pid,args 2>/dev/null | awk '$2 ~ /god-android-bridge$/ {print $1; exit}'); [ -n "$pid" ] && echo "$pid" >"$BRIDGEPID"
+  fi
+  # звук: PulseAudio из Termux (OpenSL ES), сокет $RT/pulse-native
+  if command -v pulseaudio >/dev/null && ! PULSE_SERVER=unix:$RT/pulse-native timeout 3 pactl info >/dev/null 2>&1; then
+    rm -f "$RT/pulse-native"
+    env -u PULSE_SERVER pulseaudio --start --exit-idle-time=-1 --daemonize=yes --load="module-sles-sink" \
+      --load="module-native-protocol-unix auth-anonymous=1 socket=$RT/pulse-native" >>"$RT/god-cosmic-pulse.log" 2>&1 || true
+  fi
+}
+
+stop_services() {
+  for f in "$BRIDGEPID" "$SYSBUSPID"; do
+    [ -f "$f" ] && { read -r _p <"$f"; [ -n "${_p:-}" ] && kill "$_p" 2>/dev/null; rm -f "$f"; }
+  done
+  rm -f "$RT/system_bus"
 }
 
 # апплет экранной клавиатуры в панель (если пользователь не настроил панель сам)
@@ -103,7 +140,7 @@ ensure_osk_state() {
 start_native() {
   command -v cosmic-native >/dev/null || die "нет мода cosmic (god-termux/god-termux, god/mods/cosmic/install.sh)"
   cosmic_env
-  ensure_osk_applet; ensure_osk_state
+  ensure_osk_applet; ensure_osk_state; start_services
   # композитор живёт в процессе приложения: файл cosmic-socket актуален, если он новее самого процесса приложения
   app=$(ps -A -o pid,args 2>/dev/null | awk '$2=="com.termux"{print $1; exit}')
   fresh() { [ -s "$RT/cosmic-socket" ] && S=$(cat "$RT/cosmic-socket") && [ -S "$RT/$S" ] && { [ -z "$app" ] || [ "$RT/cosmic-socket" -nt "/proc/$app" ]; }; }
@@ -126,6 +163,9 @@ start_native() {
   fi
   echo "$S" >"$STATE"; echo "god-cosmic: нативный COSMIC, сокет $S (god-cosmic run КОМАНДА)" >&2
   trap 'stop_desktop; rm -f "$STATE"; exit 0' INT TERM
+  # клиенты, запущенные раньше текущего композитора (остались от прошлого запуска приложения), подключены к мёртвому сокету
+  for p in $(desktop_procs); do [ "$RT/cosmic-socket" -nt "/proc/$p" ] && kill "$p" 2>/dev/null; done
+  sleep 1
   if [ "$DESKTOP" = 1 ]; then
     if [ -n "$(desktop_procs)" ]; then
       echo "god-cosmic: компоненты стола уже запущены" >&2
@@ -138,6 +178,10 @@ start_native() {
         else nohup "$0" run "$D/usr/bin/$c" >>"$RT/god-cosmic-$c.log" 2>&1 </dev/null & fi
         sleep 1
       done
+      # буфер обмена Android <-> COSMIC
+      if [ -x "$D/usr/bin/wl-paste" ] && command -v god-cosmic-clipboard >/dev/null; then
+        setsid -f "$0" run "$(command -v god-cosmic-clipboard)" >>"$RT/god-cosmic-clipboard.log" 2>&1 </dev/null
+      fi
     fi
   fi
   # пока сокет композитора жив (приложение работает), держим сеанс; затем гасим компоненты

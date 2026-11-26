@@ -1,0 +1,42 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# god-cosmic-clipboard: синхронизация текстового буфера обмена COSMIC <-> Android (мод cosmic) через файлы в $XDG_RUNTIME_DIR.
+#   COSMIC -> Android: wl-paste --watch пишет текст в clip-from-cosmic, мод кладёт его в ClipboardManager.
+#   Android -> COSMIC: мод пишет clip-from-android, здесь он уходит в wl-copy.
+# Запуск: god-cosmic run god-cosmic-clipboard (нужен wl-clipboard: dapt install wl-clipboard).
+P=${PREFIX:-/data/data/com.termux/files/usr}; D=${DAPT_ROOT:-$P/debian}
+RT=${XDG_RUNTIME_DIR:-$P/tmp}
+A=$RT/clip-from-android; C=$RT/clip-from-cosmic
+[ -x "$D/usr/bin/wl-paste" ] || { echo "нет wl-clipboard (dapt install wl-clipboard)" >&2; exit 1; }
+export FHS_DEBIAN=1 TMPDIR=$RT   # wl-copy создаёт временный каталог (в /tmp нет прав)
+# wl-copy жёстко использует mkdtemp("/tmp/wl-copy-buffer-XXXXXX"), а glibc-шим /tmp для mkdtemp не переназначает.
+# Делаем копию с относительным шаблоном (та же длина) и запускаем её из $XDG_RUNTIME_DIR.
+WLCOPY=$P/tmp/god-wl-copy
+if [ ! -x "$WLCOPY" ]; then
+  python3 -I - "$D/usr/bin/wl-copy" "$WLCOPY" <<'PY'
+import sys
+b = open(sys.argv[1], 'rb').read()
+old = b'/tmp/wl-copy-buffer-XXXXXX\x00'
+new = b'./' + b'/' * 15 + b'wlc' + b'XXXXXX' + b'\x00'   # та же длина (26+NUL): wl-copy дописывает путь по фиксированному смещению
+assert len(new) == len(old)
+if old not in b: sys.exit(1)
+open(sys.argv[2], 'wb').write(b.replace(old, new)); 
+PY
+  chmod +x "$WLCOPY" 2>/dev/null
+fi
+rm -f "$A" "$C"
+# COSMIC -> Android
+"$D/usr/bin/wl-paste" --no-newline --watch bash -c 'cat > "$0.tmp" && mv -f "$0.tmp" "$0"' "$C" 2>/dev/null &
+WP=$!
+trap 'kill $WP 2>/dev/null; exit 0' INT TERM EXIT
+# Android -> COSMIC: опрос файла, повторную отправку одного и того же текста подавляем
+last=""
+while kill -0 $WP 2>/dev/null; do
+  if [ -f "$A" ]; then
+    cur=$(cat "$A" 2>/dev/null; echo x); cur=${cur%x}
+    if [ -n "$cur" ] && [ "$cur" != "$last" ]; then
+      last=$cur
+      ( cd "$RT" && printf '%s' "$cur" | "$WLCOPY" 2>/dev/null )
+    fi
+  fi
+  sleep 1
+done
