@@ -92,11 +92,18 @@ ensure_osk_applet() {
   sed 's/"com.system76.CosmicAppletInputSources"/"com.system76.CosmicAppletOsk","com.system76.CosmicAppletInputSources"/' "$src" >"$dst"
 }
 
+# экранная клавиатура должна показываться сама при фокусе в текстовом поле (по умолчанию в cosmic-osk выключено)
+ensure_osk_state() {
+  f=${XDG_STATE_HOME:-$HOME/.local/state}/cosmic/com.system76.CosmicOSK/v1/ime_activation
+  [ -x "$D/usr/bin/cosmic-osk" ] && [ ! -f "$f" ] || return 0
+  mkdir -p "$(dirname "$f")" && printf true >"$f"
+}
+
 # Нативный режим: cosmic-comp живёт в приложении (мод cosmic, рисует на GPU), лаунчер только поднимает компоненты стола
 start_native() {
   command -v cosmic-native >/dev/null || die "нет мода cosmic (god-termux/god-termux, god/mods/cosmic/install.sh)"
   cosmic_env
-  ensure_osk_applet
+  ensure_osk_applet; ensure_osk_state
   rm -f "$RT/cosmic-socket"
   rm -f "$RT/cosmic-mod.log"
   out=$(cosmic-native 2>&1) || die "не удалось открыть экран COSMIC: $out (мод cosmic загружен? перезапустите Termux)"
