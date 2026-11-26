@@ -86,13 +86,20 @@ start_native() {
   command -v cosmic-native >/dev/null || die "нет мода cosmic (god-termux/god-termux, god/mods/cosmic/install.sh)"
   cosmic_env
   rm -f "$RT/cosmic-socket"
-  cosmic-native >/dev/null 2>&1 || die "не удалось открыть экран COSMIC (мод cosmic загружен? перезапустите Termux)"
+  rm -f "$RT/cosmic-mod.log"
+  out=$(cosmic-native 2>&1) || die "не удалось открыть экран COSMIC: $out (мод cosmic загружен? перезапустите Termux)"
+  case "$out" in *Error*|*rror:*) die "am start: $out";; esac
   S=""
   for i in $(seq 1 120); do
     [ -s "$RT/cosmic-socket" ] && S=$(cat "$RT/cosmic-socket") && [ -S "$RT/$S" ] && break
     S=""; sleep 0.5
   done
-  [ -n "$S" ] || die "композитор в приложении не создал сокет (см. $RT/cosmic-comp.log и logcat, тег cosmic-comp)"
+  if [ -z "$S" ]; then
+    echo "god-cosmic: композитор в приложении не создал сокет за 60 с" >&2
+    [ -f "$RT/cosmic-mod.log" ] && { echo "--- $RT/cosmic-mod.log:" >&2; tail -20 "$RT/cosmic-mod.log" >&2; }
+    [ -s "$RT/cosmic-comp.log" ] && { echo "--- $RT/cosmic-comp.log (хвост):" >&2; tail -8 "$RT/cosmic-comp.log" >&2; }
+    exit 1
+  fi
   echo "$S" >"$STATE"; echo "god-cosmic: нативный COSMIC, сокет $S (god-cosmic run КОМАНДА)" >&2
   trap 'stop_desktop; rm -f "$STATE"; exit 0' INT TERM
   if [ "$DESKTOP" = 1 ]; then
