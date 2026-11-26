@@ -204,8 +204,11 @@ start_native() {
     S=""; rm -f "$RT/cosmic-socket"
   fi
   rm -f "$RT/cosmic-mod.log.old"; [ -f "$RT/cosmic-mod.log" ] && mv "$RT/cosmic-mod.log" "$RT/cosmic-mod.log.old"
-  out=$(cosmic-native 2>&1) || die "не удалось открыть экран COSMIC: $out (мод cosmic загружен? перезапустите Termux)"
-  case "$out" in *Error*|*rror:*) die "am start: $out";; esac
+  # GOD_COSMIC_NO_OPEN=1: экран уже открыт (так запускает мод cosmic), второй раз его открывать не нужно
+  if [ "${GOD_COSMIC_NO_OPEN:-0}" != 1 ]; then
+    out=$(cosmic-native 2>&1) || die "не удалось открыть экран COSMIC: $out (мод cosmic загружен? перезапустите Termux)"
+    case "$out" in *Error*|*rror:*) die "am start: $out";; esac
+  fi
   for i in $(seq 1 120); do
     fresh && break
     S=""; sleep 0.5
