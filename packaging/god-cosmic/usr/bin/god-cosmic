@@ -43,7 +43,9 @@ cosmic_env() {
   ensure_dbus || true
   export FHS_DEBIAN=1 COSMIC_BACKEND=winit XDG_RUNTIME_DIR=$RT NO_AT_BRIDGE=1
   # «системная» шина (UPower, NetworkManager от моста Android) и звук (PulseAudio для Android)
-  export DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RT/system_bus PULSE_SERVER=unix:$RT/pulse-native
+  export DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RT/system_bus
+  # приложения ходят в pipewire-pulse (тогда слайдер громкости в панели управляет звуком); иначе прямо в PulseAudio Android
+  if [ -S "$RT/pulse/native" ]; then export PULSE_SERVER=unix:$RT/pulse/native; else export PULSE_SERVER=unix:$RT/pulse-native; fi
   export XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
   export XDG_DATA_DIRS=$D/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
   # libxkbcommon проверяет каталог раскладок через eaccess(); шим god-termux до исправления его не переводил
@@ -111,12 +113,65 @@ start_services() {
     env -u PULSE_SERVER pulseaudio --start --exit-idle-time=-1 --daemonize=yes --load="module-sles-sink" \
       --load="module-native-protocol-unix auth-anonymous=1 socket=$RT/pulse-native" >>"$RT/god-cosmic-pulse.log" 2>&1 || true
   fi
+  # ждём, пока PulseAudio Android начнёт принимать подключения (иначе туннель PipeWire получит Connection refused)
+  for _i in $(seq 1 30); do PULSE_SERVER=unix:$RT/pulse-native timeout 2 pactl info >/dev/null 2>&1 && break; sleep 0.5; done
+  start_audio
+  # cosmic_env мог выбрать PULSE_SERVER до запуска pipewire-pulse: обновляем
+  if [ -S "$RT/pulse/native" ]; then export PULSE_SERVER=unix:$RT/pulse/native; fi
+}
+
+# --- звук COSMIC: PipeWire (Debian) с туннельным выходом в PulseAudio Android + WirePlumber + pipewire-pulse ---
+# Цепочка: приложение -> pipewire-pulse / PipeWire -> pulse-tunnel -> PulseAudio Termux (OpenSL ES) -> динамики/наушники Android.
+# Нужны Debian-пакеты pipewire, pipewire-bin, wireplumber, pipewire-pulse (dapt install god-cosmic-desktop тянет их).
+# pid процесса из Debian-дерева по имени программы: их comm — загрузчик (ld-linux), поэтому ищем по пути в конце командной строки
+gpid() { ps -A -o pid,args 2>/dev/null | awk -v n="$D/usr/bin/$1" '$NF == n {print $1}' | head -1; }
+
+start_audio() {
+  command -v pulseaudio >/dev/null || return 0
+  for b in pipewire wireplumber pipewire-pulse; do [ -x "$D/usr/bin/$b" ] || return 0; done
+  L=$D/usr/lib/aarch64-linux-gnu
+  # libpulse ищет libpulsecommon в подкаталоге pulseaudio/, которого нет в пути поиска glibc-шима: кладём ссылку рядом
+  for f in "$L"/pulseaudio/libpulsecommon-*.so; do
+    [ -e "$f" ] && [ ! -e "$L/${f##*/}" ] && ln -sf "pulseaudio/${f##*/}" "$L/${f##*/}"
+  done
+  CFG=$RT/god-audio-cfg
+  mkdir -p "$CFG/pipewire/pipewire.conf.d" "$CFG/wireplumber/wireplumber.conf.d"
+  cat >"$CFG/pipewire/pipewire.conf.d/10-god.conf" <<EOF
+context.properties = { support.dbus = false }
+context.modules = [
+  { name = libpipewire-module-pulse-tunnel
+    args = { tunnel.mode = sink  pulse.server.address = "unix:$RT/pulse-native"  node.name = "android_out"  node.description = "Android audio"
+             audio.rate = 44100  audio.channels = 2  audio.position = [ FL FR ] } }
+]
+EOF
+  cat >"$CFG/wireplumber/wireplumber.conf.d/90-god.conf" <<'EOF'
+wireplumber.profiles = { main = { monitor.alsa = disabled  monitor.alsa-midi = disabled  monitor.bluez = disabled  monitor.bluez-midi = disabled  monitor.v4l2 = disabled  monitor.libcamera = disabled } }
+EOF
+  # устаревшие сокет и lock от прошлого запуска мешают PipeWire (Address already in use)
+  [ -n "$(gpid pipewire)" ] || rm -f "$RT"/pipewire-0 "$RT"/pipewire-0.lock "$RT"/pipewire-0-manager "$RT"/pipewire-0-manager.lock "$RT"/pulse/native "$RT"/pulse/pid
+  AE="env FHS_DEBIAN=1 XDG_RUNTIME_DIR=$RT XDG_CONFIG_HOME=$CFG"
+  if ! [ -n "$(gpid pipewire)" ]; then
+    $AE setsid -f "$D/usr/bin/pipewire" >>"$RT/god-cosmic-audio.log" 2>&1 </dev/null
+    for _i in $(seq 1 30); do [ -S "$RT/pipewire-0" ] && [ -n "$(gpid pipewire)" ] && break; sleep 0.5; done
+    sleep 1
+  fi
+  [ -n "$(gpid pipewire)" ] || { echo "god-cosmic: PipeWire не запустился (см. $RT/god-cosmic-audio.log)" >&2; return 0; }
+  for c in wireplumber pipewire-pulse; do
+    [ -n "$(gpid "$c")" ] && continue
+    $AE setsid -f "$D/usr/bin/$c" >>"$RT/god-cosmic-audio.log" 2>&1 </dev/null
+    sleep 3
+  done
+}
+
+stop_audio() {
+  for c in pipewire-pulse wireplumber pipewire; do p=$(gpid "$c"); [ -n "$p" ] && kill $p 2>/dev/null; done
 }
 
 stop_services() {
   for f in "$BRIDGEPID" "$SYSBUSPID"; do
     [ -f "$f" ] && { read -r _p <"$f"; [ -n "${_p:-}" ] && kill "$_p" 2>/dev/null; rm -f "$f"; }
   done
+  stop_audio
   rm -f "$RT/system_bus"
 }
 

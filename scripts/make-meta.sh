@@ -6,6 +6,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd); OUT=$ROOT/dist/deb
 # состав берём из components/*.env (PKG), а не из dist/deb: компонент, упавший в этой сборке, всё равно остаётся в зависимостях
 DEPS=$(for f in "$ROOT"/components/*.env; do ( unset PKG; source "$f"; echo "${PKG:-}" ); done | grep . | sort -u | paste -sd, - | sed 's/,/, /g')
 [ -n "$DEPS" ] || { echo "нет компонентов" >&2; exit 1; }
+# звук (PipeWire + туннель в PulseAudio Android), буфер обмена и шина — пакеты Debian, нужные лаунчеру god-cosmic
+DEPS="$DEPS, pipewire, pipewire-bin, pipewire-pulse, wireplumber, wl-clipboard, dbus"
 mkdir -p "$OUT"
 VERSION=1.0.0+$(date -u +%Y%m%d)-1
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/DEBIAN" "$T/usr/share/doc/god-cosmic-desktop"
