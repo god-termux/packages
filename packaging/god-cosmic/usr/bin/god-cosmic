@@ -192,14 +192,15 @@ ensure_osk_state() {
 }
 
 # Нативный режим: cosmic-comp живёт в приложении (мод cosmic, рисует на GPU), лаунчер только поднимает компоненты стола
-# ярлыки приложений: Debian-ярлык chromium.desktop зовёт /usr/bin/chromium (голый glibc-Chromium без флагов Android), он не запускается.
-# Если в Termux есть нативный chromium-browser, перекрываем ярлык своим (каталог пользователя приоритетнее XDG_DATA_DIRS)
+# ярлыки приложений. Chromium/Electron-программы (chromium, claude-desktop, mirasim ...) в Debian-дереве без флагов Android не стартуют:
+# нужны Wayland, отключённые песочница и /dev/shm, программный рендер. Для них кладём в каталог пользователя (он приоритетнее XDG_DATA_DIRS)
+# копии ярлыков с добавленными флагами. Если в Termux есть нативный chromium-browser, ярлык chromium.desktop зовёт его.
 ensure_app_entries() {
-  command -v chromium-browser >/dev/null || return 0
   d=${XDG_DATA_HOME:-$HOME/.local/share}/applications; mkdir -p "$d"
-  f=$d/chromium.desktop
-  [ -f "$f" ] && grep -q '^X-God-Cosmic=1' "$f" && return 0
-  cat >"$f" <<EOF
+  if command -v chromium-browser >/dev/null; then
+    f=$d/chromium.desktop
+    if ! [ -f "$f" ] || grep -q '^X-God-Cosmic=1' "$f"; then
+      cat >"$f" <<EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -214,6 +215,25 @@ MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
 StartupNotify=true
 X-God-Cosmic=1
 EOF
+    fi
+  fi
+  FL="--ozone-platform=wayland --no-sandbox --disable-dev-shm-usage --disable-gpu"
+  for f in "$D"/usr/share/applications/*.desktop; do
+    [ -f "$f" ] || continue
+    b=${f##*/}; out=$d/$b
+    grep -q '^NoDisplay=true' "$f" && continue
+    src=$f
+    if [ -f "$out" ] && ! grep -q '^X-God-Cosmic=1' "$out"; then
+      grep -q -- '--no-sandbox' "$out" && continue                           # пользователь уже задал флаги сам
+      src=$out                                                              # ярлык создан приложением (Electron): добавляем флаги в него
+    fi
+    cmd=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$f" | head -1); [ -n "$cmd" ] || continue
+    case "$cmd" in /*) path=$D$cmd;; *) path=$(PATH=$D/usr/bin:$PATH command -v "$cmd");; esac
+    real=$(readlink -f "$path" 2>/dev/null) || continue; dir=${real%/*}
+    [ -e "$dir/resources/app.asar" ] || [ -e "$dir/chrome_100_percent.pak" ] || [ -e "$dir/resources.pak" ] || continue
+    [ "$b" = chromium.desktop ] && [ -f "$out" ] && continue                   # уже подменён нативным chromium-browser
+    sed -E "s#^(Exec=)([^ ]+)#\\1\\2 $FL#; 1a X-God-Cosmic=1" "$src" >"$out.new" && mv "$out.new" "$out"
+  done
 }
 
 start_native() {
