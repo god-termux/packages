@@ -192,10 +192,45 @@ ensure_osk_state() {
 }
 
 # Нативный режим: cosmic-comp живёт в приложении (мод cosmic, рисует на GPU), лаунчер только поднимает компоненты стола
+# ярлыки приложений: Debian-ярлык chromium.desktop зовёт /usr/bin/chromium (голый glibc-Chromium без флагов Android), он не запускается.
+# Если в Termux есть нативный chromium-browser, перекрываем ярлык своим (каталог пользователя приоритетнее XDG_DATA_DIRS)
+ensure_app_entries() {
+  command -v chromium-browser >/dev/null || return 0
+  d=${XDG_DATA_HOME:-$HOME/.local/share}/applications; mkdir -p "$d"
+  f=$d/chromium.desktop
+  [ -f "$f" ] && grep -q '^X-God-Cosmic=1' "$f" && return 0
+  cat >"$f" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Chromium Web Browser
+GenericName=Web Browser
+Comment=Chromium из Termux (chromium-browser)
+Exec=chromium-browser %U
+Icon=chromium
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+X-God-Cosmic=1
+EOF
+}
+
 start_native() {
   command -v cosmic-native >/dev/null || die "нет мода cosmic (god-termux/god-termux, god/mods/cosmic/install.sh)"
   cosmic_env
-  ensure_osk_applet; ensure_osk_state; start_services
+  # один запуск на сеанс: мод cosmic сам вызывает этот лаунчер при открытии экрана, ручной запуск параллельно давал вторые копии панели и дока
+  LOCK=$RT/god-cosmic-native.pid
+  app0=$(ps -A -o pid,args 2>/dev/null | awk '$2=="com.termux"{print $1; exit}')
+  if [ -s "$LOCK" ]; then
+    lp=$(cat "$LOCK")
+    if [ "$lp" != "$$" ] && [ -d "/proc/$lp" ] && tr '\0' ' ' <"/proc/$lp/cmdline" 2>/dev/null | grep -q god-cosmic \
+       && { [ -z "$app0" ] || [ "$LOCK" -nt "/proc/$app0" ]; }; then
+      echo "god-cosmic: уже запущен (pid $lp), второй экземпляр не нужен" >&2; exit 0
+    fi
+  fi
+  echo $$ >"$LOCK"
+  ensure_osk_applet; ensure_osk_state; ensure_app_entries; start_services
   # композитор живёт в процессе приложения: файл cosmic-socket актуален, если он новее самого процесса приложения
   app=$(ps -A -o pid,args 2>/dev/null | awk '$2=="com.termux"{print $1; exit}')
   fresh() { [ -s "$RT/cosmic-socket" ] && S=$(cat "$RT/cosmic-socket") && [ -S "$RT/$S" ] && { [ -z "$app" ] || [ "$RT/cosmic-socket" -nt "/proc/$app" ]; }; }
@@ -220,7 +255,7 @@ start_native() {
     exit 1
   fi
   echo "$S" >"$STATE"; echo "god-cosmic: нативный COSMIC, сокет $S (god-cosmic run КОМАНДА)" >&2
-  trap 'stop_desktop; rm -f "$STATE"; exit 0' INT TERM
+  trap 'stop_desktop; rm -f "$STATE" "$LOCK"; exit 0' INT TERM
   # клиенты, запущенные раньше текущего композитора (остались от прошлого запуска приложения), подключены к мёртвому сокету
   for p in $(desktop_procs); do [ "$RT/cosmic-socket" -nt "/proc/$p" ] && kill "$p" 2>/dev/null; done
   sleep 1
@@ -244,7 +279,7 @@ start_native() {
   fi
   # пока сокет композитора жив (приложение работает), держим сеанс; затем гасим компоненты
   while [ -S "$RT/$S" ]; do sleep 5; done
-  stop_desktop; rm -f "$STATE"
+  stop_desktop; rm -f "$STATE" "$LOCK"
 }
 
 cmd=${1:-start}; [ $# -gt 0 ] && shift
